@@ -1,13 +1,11 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { FaMicrophone, FaPaperPlane, FaRobot, FaUser, FaStop, FaTrash, FaFileCode, FaPaperclip, FaGithub, FaTimes } from 'react-icons/fa';
+import { FaMicrophone, FaPaperPlane, FaRobot, FaUser, FaStop, FaTrash, FaFileCode } from 'react-icons/fa';
 import ReactMarkdown from 'react-markdown';
-import { Message, AttachedFile } from '../types';
+import { Message } from '../types';
 import { sendMessageToGemini, resetConversation } from '../services/geminiService';
 import { textToSpeech } from '../services/elevenLabsService';
 import { extractFilesFromText } from '../services/codeExtractor';
-import { processFiles, formatFilesForGemini, isTextFile, validateFileSize, getFileIcon, formatFileSize } from '../services/fileService';
 import FileCard from '../components/FileCard';
-import GitHubPanel from '../components/GitHubPanel';
 
 const ChatPage: React.FC = () => {
   const [messages, setMessages] = useState<Message[]>([]);
@@ -15,16 +13,12 @@ const ChatPage: React.FC = () => {
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [isRecording, setIsRecording] = useState<boolean>(false);
   const [isSpeaking, setIsSpeaking] = useState<boolean>(false);
-  const [attachedFiles, setAttachedFiles] = useState<AttachedFile[]>([]);
-  const [showGitHubPanel, setShowGitHubPanel] = useState<boolean>(false);
-  const [generatedFiles, setGeneratedFiles] = useState<any[]>([]);
   
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const currentAudioRef = useRef<HTMLAudioElement | null>(null);
   const recognitionRef = useRef<any>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
   
   // Scroll al final de los mensajes cuando se agregue uno nuevo
   useEffect(() => {
@@ -54,7 +48,7 @@ const ChatPage: React.FC = () => {
         setMessages(prev => [...prev, userMessage]);
         
         // Procesar el mensaje con Gemini
-        await processMessage(transcript, []);
+        await processMessage(transcript);
       };
 
       recognitionRef.current.onerror = (event: any) => {
@@ -93,72 +87,16 @@ const ChatPage: React.FC = () => {
     }
   };
 
-  // Manejar adjuntar archivos
-  const handleFileAttach = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const files = event.target.files;
-    if (!files || files.length === 0) return;
-
-    const validFiles: File[] = [];
-    const errors: string[] = [];
-
-    for (let i = 0; i < files.length; i++) {
-      const file = files[i];
-      
-      if (!isTextFile(file)) {
-        errors.push(`${file.name}: Solo se permiten archivos de texto/código`);
-        continue;
-      }
-      
-      if (!validateFileSize(file)) {
-        errors.push(`${file.name}: El archivo es muy grande (máx 5MB)`);
-        continue;
-      }
-      
-      validFiles.push(file);
-    }
-
-    if (errors.length > 0) {
-      alert(errors.join('\n'));
-    }
-
-    if (validFiles.length > 0) {
-      try {
-        const processed = await processFiles(validFiles);
-        setAttachedFiles(prev => [...prev, ...processed]);
-      } catch (error) {
-        console.error('Error procesando archivos:', error);
-        alert('Error al procesar algunos archivos');
-      }
-    }
-
-    // Reset input
-    if (fileInputRef.current) {
-      fileInputRef.current.value = '';
-    }
-  };
-
-  // Remover archivo adjunto
-  const removeAttachedFile = (index: number) => {
-    setAttachedFiles(prev => prev.filter((_, i) => i !== index));
-  };
-
   // Procesar mensaje con Gemini y generar audio
-  const processMessage = async (messageText: string, files: AttachedFile[]): Promise<void> => {
+  const processMessage = async (messageText: string): Promise<void> => {
     try {
       setIsLoading(true);
       
-      // Agregar contenido de archivos al mensaje si hay archivos adjuntos
-      let fullMessage = messageText;
-      if (files.length > 0) {
-        fullMessage += formatFilesForGemini(files);
-      }
-      
       // Obtener respuesta de Gemini AI
-      const aiResponse = await sendMessageToGemini(fullMessage);
+      const aiResponse = await sendMessageToGemini(messageText);
       
       // Extraer archivos de código de la respuesta
-      const extractedFiles = extractFilesFromText(aiResponse);
-      setGeneratedFiles(extractedFiles);
+      const files = extractFilesFromText(aiResponse);
       
       // Generar audio de la respuesta con ElevenLabs
       let audioUrl: string | undefined;
@@ -192,7 +130,7 @@ const ChatPage: React.FC = () => {
         content: aiResponse,
         isAudio: !!audioUrl,
         audioUrl: audioUrl,
-        files: extractedFiles.length > 0 ? extractedFiles : undefined,
+        files: files.length > 0 ? files : undefined,
         timestamp: Date.now()
       };
       
@@ -218,25 +156,22 @@ const ChatPage: React.FC = () => {
   
   // Enviar mensaje de texto
   const sendMessage = async (): Promise<void> => {
-    if (!input.trim() && attachedFiles.length === 0) return;
+    if (!input.trim()) return;
     
-    const userMessage = input || '[Archivos adjuntos]';
-    const filesToSend = [...attachedFiles];
-    
+    const userMessage = input;
     setInput('');
-    setAttachedFiles([]);
     
     // Agregar mensaje del usuario
     const userMsg: Message = {
       sender: 'user',
-      content: userMessage + (filesToSend.length > 0 ? `\n\n📎 ${filesToSend.length} archivo(s) adjunto(s)` : ''),
+      content: userMessage,
       isAudio: false,
       timestamp: Date.now()
     };
     setMessages(prev => [...prev, userMsg]);
     
     // Procesar con Gemini
-    await processMessage(userMessage, filesToSend);
+    await processMessage(userMessage);
   };
   
   // Reiniciar la conversación
@@ -244,8 +179,6 @@ const ChatPage: React.FC = () => {
     if (window.confirm('¿Estás seguro de que quieres reiniciar la conversación?')) {
       resetConversation();
       setMessages([]);
-      setAttachedFiles([]);
-      setGeneratedFiles([]);
       
       // Detener audio si está reproduciéndose
       if (currentAudioRef.current) {
@@ -292,13 +225,7 @@ const ChatPage: React.FC = () => {
               <p style={{ textAlign: 'center', maxWidth: '500px', lineHeight: '1.6' }}>
                 Puedo ayudarte a crear aplicaciones completas en múltiples lenguajes: JavaScript, Python, PHP, Java, y más.
                 <br /><br />
-                📎 Puedes adjuntar archivos para que los analice
-                <br />
-                🔊 Puedes hablarme usando el micrófono
-                <br />
-                💾 Todos los archivos que genere puedes descargarlos
-                <br />
-                <FaGithub style={{ display: 'inline', marginRight: '0.25rem' }} /> Y puedo subirlos directamente a GitHub
+                Háblame de tu proyecto y generaré el código que necesitas. ¡Los archivos se pueden descargar al instante!
               </p>
             </div>
           ) : (
@@ -328,7 +255,7 @@ const ChatPage: React.FC = () => {
                   
                   <div>
                     {msg.sender === 'user' ? (
-                      <p style={{ whiteSpace: 'pre-wrap' }}>{msg.content}</p>
+                      <p>{msg.content}</p>
                     ) : (
                       <div>
                         <ReactMarkdown 
@@ -388,24 +315,6 @@ const ChatPage: React.FC = () => {
           <div ref={messagesEndRef} />
         </div>
         
-        {/* Archivos adjuntos */}
-        {attachedFiles.length > 0 && (
-          <div style={{ padding: '0.5rem 1rem', backgroundColor: 'rgba(99, 102, 241, 0.1)', borderTop: '1px solid rgba(255, 255, 255, 0.1)' }}>
-            <div className="attached-files-list">
-              {attachedFiles.map((file, index) => (
-                <div key={index} className="attached-file-chip">
-                  <span>{getFileIcon(file.name)}</span>
-                  <span>{file.name}</span>
-                  <span style={{ fontSize: '0.7rem', color: 'rgba(255, 255, 255, 0.5)' }}>({formatFileSize(file.size)})</span>
-                  <button onClick={() => removeAttachedFile(index)} title="Eliminar">
-                    <FaTimes />
-                  </button>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-        
         {/* Controles y entrada de usuario */}
         <div className="chat-input-container">
           <button
@@ -430,41 +339,22 @@ const ChatPage: React.FC = () => {
           </button>
           
           <input
-            type="file"
-            ref={fileInputRef}
-            onChange={handleFileAttach}
-            multiple
-            accept=".txt,.js,.jsx,.ts,.tsx,.py,.java,.c,.cpp,.h,.hpp,.cs,.php,.rb,.go,.rs,.swift,.kt,.html,.css,.scss,.json,.xml,.yaml,.yml,.md,.sql,.sh"
-            style={{ display: 'none' }}
-          />
-          
-          <button
-            onClick={() => fileInputRef.current?.click()}
-            className="chat-button"
-            style={{ backgroundColor: 'rgba(236, 72, 153, 0.5)' }}
-            title="Adjuntar archivos"
-            disabled={isLoading}
-          >
-            <FaPaperclip />
-          </button>
-          
-          <input
             type="text"
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyPress={(e) => e.key === 'Enter' && !isLoading && sendMessage()}
-            placeholder="Cuéntame sobre tu proyecto o adjunta archivos..."
+            placeholder="Cuéntame sobre tu proyecto..."
             disabled={isLoading || isRecording}
             className="chat-input"
           />
           
           <button
             onClick={sendMessage}
-            disabled={isLoading || (!input.trim() && attachedFiles.length === 0) || isRecording}
+            disabled={isLoading || !input.trim() || isRecording}
             className="chat-button"
             style={{ 
-              backgroundColor: (input.trim() || attachedFiles.length > 0) ? 'var(--maya-primary)' : 'rgba(99, 102, 241, 0.5)',
-              cursor: (input.trim() || attachedFiles.length > 0) && !isLoading && !isRecording ? 'pointer' : 'not-allowed'
+              backgroundColor: input.trim() ? 'var(--maya-primary)' : 'rgba(99, 102, 241, 0.5)',
+              cursor: input.trim() && !isLoading && !isRecording ? 'pointer' : 'not-allowed'
             }}
           >
             <FaPaperPlane />
@@ -492,25 +382,12 @@ const ChatPage: React.FC = () => {
               <FaMicrophone />
             </button>
           )}
-          
-          <button
-            onClick={() => setShowGitHubPanel(!showGitHubPanel)}
-            className="chat-button"
-            style={{ 
-              backgroundColor: showGitHubPanel ? 'var(--maya-primary)' : 'rgba(255, 255, 255, 0.1)',
-              cursor: 'pointer'
-            }}
-            title="GitHub"
-            disabled={generatedFiles.length === 0}
-          >
-            <FaGithub />
-          </button>
         </div>
       </div>
       
       <div style={{ textAlign: 'center', color: 'rgba(255, 255, 255, 0.6)', fontSize: '0.875rem', marginTop: '1rem' }}>
         <p>
-          Powered by <strong style={{ color: 'var(--maya-primary)' }}>Google Gemini AI 2.0 Flash</strong> y{' '}
+          Powered by <strong style={{ color: 'var(--maya-primary)' }}>Google Gemini AI</strong> y{' '}
           <strong style={{ color: 'var(--maya-secondary)' }}>ElevenLabs</strong>
         </p>
         {isRecording && (
@@ -524,14 +401,6 @@ const ChatPage: React.FC = () => {
           </p>
         )}
       </div>
-      
-      {/* GitHub Panel */}
-      {showGitHubPanel && (
-        <GitHubPanel 
-          files={generatedFiles} 
-          onClose={() => setShowGitHubPanel(false)} 
-        />
-      )}
     </div>
   );
 };

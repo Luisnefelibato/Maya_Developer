@@ -1,8 +1,9 @@
 import axios from 'axios';
 import { GeminiMessage, GeminiResponse } from '../types';
 
-const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
-const GEMINI_API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent';
+const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY || 'AIzaSyB4jqpkWeu7X86ne6_jPEIQlyow7LPyrRM';
+const GEMINI_MODEL = 'gemini-2.0-flash-exp';
+const GEMINI_API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
 
 // System prompt para Maya como Full Stack Senior Developer
 const SYSTEM_PROMPT = `Eres Maya, una desarrolladora Full Stack Senior altamente experimentada y amigable. 

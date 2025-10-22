@@ -1,8 +1,9 @@
 import axios from 'axios';
 import { ElevenLabsRequest, ElevenLabsVoiceSettings } from '../types';
 
-const ELEVENLABS_API_KEY = import.meta.env.VITE_ELEVENLABS_API_KEY;
-const ELEVENLABS_VOICE_ID = import.meta.env.VITE_ELEVENLABS_VOICE_ID;
+const ELEVENLABS_API_KEY = import.meta.env.VITE_ELEVENLABS_API_KEY || 'sk_2591cde52f44e48d9212d66cb9d628da2181e3c25adb6bbf';
+const ELEVENLABS_VOICE_ID = import.meta.env.VITE_ELEVENLABS_VOICE_ID || '86V9x9hrQds83qf7zaGn';
+const ELEVENLABS_MODEL = import.meta.env.VITE_ELEVENLABS_MODEL || 'eleven_multilingual_v2';
 const ELEVENLABS_API_URL = 'https://api.elevenlabs.io/v1';
 
 /**
@@ -31,7 +32,7 @@ export const textToSpeech = async (text: string): Promise<Blob> => {
 
     const requestData: ElevenLabsRequest = {
       text: cleanText,
-      model_id: 'eleven_multilingual_v2',
+      model_id: ELEVENLABS_MODEL,
       voice_settings: DEFAULT_VOICE_SETTINGS
     };
 

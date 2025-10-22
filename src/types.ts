@@ -98,10 +98,22 @@ export interface GitHubRepo {
   name: string;
   description: string;
   private: boolean;
+  full_name?: string;
+  html_url?: string;
+  clone_url?: string;
 }
 
 export interface GitHubFile {
   path: string;
   content: string;
   message: string;
+  sha?: string;
+}
+
+// Tipos para archivos adjuntos
+export interface AttachedFile {
+  name: string;
+  content: string;
+  type: string;
+  size: number;
 }
