@@ -8,7 +8,7 @@ const Navbar: React.FC = () => {
       <div className="container navbar-container">
         <Link to="/" className="navbar-logo">
           <FaRobot style={{ color: 'var(--maya-primary)', fontSize: '1.5rem' }} />
-          <span className="gradient-text">Maya Python</span>
+          <span className="gradient-text">Maya Full Stack</span>
         </Link>
         
         <div className="navbar-menu">

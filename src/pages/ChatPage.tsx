@@ -1,130 +1,156 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { FaMicrophone, FaPaperPlane, FaRobot, FaUser, FaStop, FaTrash } from 'react-icons/fa';
+import { FaMicrophone, FaPaperPlane, FaRobot, FaUser, FaStop, FaTrash, FaFileCode } from 'react-icons/fa';
 import ReactMarkdown from 'react-markdown';
-import axios from 'axios';
 import { Message } from '../types';
-
-// Usar la ruta proxy en lugar de la URL directa
-const API_URL = '/api';
+import { sendMessageToGemini, resetConversation } from '../services/geminiService';
+import { textToSpeech } from '../services/elevenLabsService';
+import { extractFilesFromText } from '../services/codeExtractor';
+import FileCard from '../components/FileCard';
 
 const ChatPage: React.FC = () => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState<string>('');
   const [isLoading, setIsLoading] = useState<boolean>(false);
-  const [sessionId, setSessionId] = useState<string>(`session_${Date.now()}`);
   const [isRecording, setIsRecording] = useState<boolean>(false);
+  const [isSpeaking, setIsSpeaking] = useState<boolean>(false);
   
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
+  const currentAudioRef = useRef<HTMLAudioElement | null>(null);
+  const recognitionRef = useRef<any>(null);
   
   // Scroll al final de los mensajes cuando se agregue uno nuevo
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  // Iniciar grabación de audio
-  const startRecording = async (): Promise<void> => {
-    try {
-      audioChunksRef.current = [];
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const mediaRecorder = new MediaRecorder(stream);
-      
-      mediaRecorder.addEventListener('dataavailable', (event) => {
-        audioChunksRef.current.push(event.data);
-      });
-      
-      mediaRecorder.addEventListener('stop', async () => {
-        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/wav' });
+  // Inicializar Web Speech API para reconocimiento de voz
+  useEffect(() => {
+    if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
+      const SpeechRecognition = (window as any).webkitSpeechRecognition || (window as any).SpeechRecognition;
+      recognitionRef.current = new SpeechRecognition();
+      recognitionRef.current.continuous = false;
+      recognitionRef.current.interimResults = false;
+      recognitionRef.current.lang = 'es-ES';
+
+      recognitionRef.current.onresult = async (event: any) => {
+        const transcript = event.results[0][0].transcript;
+        console.log('Transcripción:', transcript);
         
-        // Enviar audio y obtener respuesta
-        try {
-          setIsLoading(true);
-          
-          // Primero transcribe el audio para mostrar lo que se dijo
-          const formData = new FormData();
-          formData.append('audio', audioBlob);
-          formData.append('session_id', sessionId);
-          
-          const transcriptionResponse = await axios.post(`${API_URL}/transcribe`, formData, {
-            headers: {
-              'Content-Type': 'multipart/form-data',
-            }
-          });
-          
-          // Agrega el mensaje del usuario
-          setMessages(prev => [
-            ...prev, 
-            { 
-              sender: 'user', 
-              content: transcriptionResponse.data.text, 
-              isAudio: false 
-            }
-          ]);
-          
-          // Envía el audio para obtener respuesta en audio
-          const audioResponse = await axios.post(`${API_URL}/voice-chat`, formData, {
-            headers: {
-              'Content-Type': 'multipart/form-data',
-            },
-            responseType: 'blob'
-          });
-          
-          const responseUrl = URL.createObjectURL(audioResponse.data);
-          
-          // Reproduce la respuesta automáticamente
-          const audio = new Audio(responseUrl);
-          audio.play();
-          
-          // También obtener respuesta en texto para mostrar
-          const textResponse = await axios.post(`${API_URL}/chat`, {
-            message: transcriptionResponse.data.text,
-            session_id: sessionId
-          });
-          
-          setMessages(prev => [
-            ...prev, 
-            { 
-              sender: 'maya', 
-              content: textResponse.data.response, 
-              isAudio: true, 
-              audioUrl: responseUrl 
-            }
-          ]);
-          
-        } catch (error) {
-          console.error('Error al procesar audio:', error);
-          setMessages(prev => [
-            ...prev, 
-            { 
-              sender: 'maya', 
-              content: 'Lo siento, hubo un error al procesar tu audio.', 
-              isAudio: false 
-            }
-          ]);
-        } finally {
-          setIsLoading(false);
-          setIsRecording(false);
+        // Agregar mensaje del usuario
+        const userMessage: Message = {
+          sender: 'user',
+          content: transcript,
+          isAudio: false,
+          timestamp: Date.now()
+        };
+        setMessages(prev => [...prev, userMessage]);
+        
+        // Procesar el mensaje con Gemini
+        await processMessage(transcript);
+      };
+
+      recognitionRef.current.onerror = (event: any) => {
+        console.error('Error de reconocimiento de voz:', event.error);
+        setIsRecording(false);
+        if (event.error === 'no-speech') {
+          alert('No detecté ningún audio. Por favor, intenta de nuevo.');
         }
-      });
-      
-      mediaRecorderRef.current = mediaRecorder;
-      mediaRecorder.start();
-      setIsRecording(true);
-      
-    } catch (error) {
-      console.error('Error al iniciar grabación:', error);
-      alert('No se pudo acceder al micrófono.');
+      };
+
+      recognitionRef.current.onend = () => {
+        setIsRecording(false);
+      };
+    }
+  }, []);
+
+  // Iniciar grabación de audio con Web Speech API
+  const startRecording = (): void => {
+    if (recognitionRef.current) {
+      try {
+        recognitionRef.current.start();
+        setIsRecording(true);
+      } catch (error) {
+        console.error('Error al iniciar reconocimiento de voz:', error);
+        alert('No se pudo acceder al micrófono. Verifica los permisos.');
+      }
+    } else {
+      alert('Tu navegador no soporta reconocimiento de voz. Usa Chrome, Edge o Safari.');
     }
   };
   
   // Detener grabación de audio
   const stopRecording = (): void => {
-    if (mediaRecorderRef.current) {
-      mediaRecorderRef.current.stop();
+    if (recognitionRef.current && isRecording) {
+      recognitionRef.current.stop();
+    }
+  };
+
+  // Procesar mensaje con Gemini y generar audio
+  const processMessage = async (messageText: string): Promise<void> => {
+    try {
+      setIsLoading(true);
       
-      // Detener los tracks de audio para liberar el micrófono
-      mediaRecorderRef.current.stream.getTracks().forEach(track => track.stop());
+      // Obtener respuesta de Gemini AI
+      const aiResponse = await sendMessageToGemini(messageText);
+      
+      // Extraer archivos de código de la respuesta
+      const files = extractFilesFromText(aiResponse);
+      
+      // Generar audio de la respuesta con ElevenLabs
+      let audioUrl: string | undefined;
+      try {
+        setIsSpeaking(true);
+        const audioBlob = await textToSpeech(aiResponse);
+        audioUrl = URL.createObjectURL(audioBlob);
+        
+        // Reproducir el audio
+        const audio = new Audio(audioUrl);
+        currentAudioRef.current = audio;
+        
+        audio.onended = () => {
+          setIsSpeaking(false);
+          currentAudioRef.current = null;
+        };
+        
+        audio.play().catch(err => {
+          console.error('Error al reproducir audio:', err);
+          setIsSpeaking(false);
+        });
+      } catch (audioError) {
+        console.error('Error al generar audio:', audioError);
+        setIsSpeaking(false);
+        // Continuar sin audio si falla
+      }
+      
+      // Agregar respuesta de Maya
+      const mayaMessage: Message = {
+        sender: 'maya',
+        content: aiResponse,
+        isAudio: !!audioUrl,
+        audioUrl: audioUrl,
+        files: files.length > 0 ? files : undefined,
+        timestamp: Date.now()
+      };
+      
+      setMessages(prev => [...prev, mayaMessage]);
+      
+    } catch (error) {
+      console.error('Error al procesar mensaje:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Hubo un error al procesar tu mensaje.';
+      
+      setMessages(prev => [
+        ...prev,
+        {
+          sender: 'maya',
+          content: `Lo siento, ${errorMessage}`,
+          isAudio: false,
+          timestamp: Date.now()
+        }
+      ]);
+    } finally {
+      setIsLoading(false);
     }
   };
   
@@ -136,73 +162,53 @@ const ChatPage: React.FC = () => {
     setInput('');
     
     // Agregar mensaje del usuario
-    setMessages(prev => [...prev, { sender: 'user', content: userMessage, isAudio: false }]);
+    const userMsg: Message = {
+      sender: 'user',
+      content: userMessage,
+      isAudio: false,
+      timestamp: Date.now()
+    };
+    setMessages(prev => [...prev, userMsg]);
     
-    try {
-      setIsLoading(true);
-      
-      // Obtener respuesta en texto
-      const textResponse = await axios.post(`${API_URL}/chat`, {
-        message: userMessage,
-        session_id: sessionId
-      });
-      
-      // Obtener respuesta en audio
-      const audioResponse = await axios.post(`${API_URL}/speak`, {
-        message: userMessage,
-        session_id: sessionId
-      }, {
-        responseType: 'blob'
-      });
-      
-      const audioUrl = URL.createObjectURL(audioResponse.data);
-      
-      // Reproducir el audio
-      const audio = new Audio(audioUrl);
-      audio.play();
-      
-      setMessages(prev => [
-        ...prev, 
-        { 
-          sender: 'maya', 
-          content: textResponse.data.response, 
-          isAudio: true, 
-          audioUrl: audioUrl 
-        }
-      ]);
-      
-    } catch (error) {
-      console.error('Error al enviar mensaje:', error);
-      setMessages(prev => [
-        ...prev, 
-        { 
-          sender: 'maya', 
-          content: 'Lo siento, hubo un error al procesar tu mensaje.', 
-          isAudio: false 
-        }
-      ]);
-    } finally {
-      setIsLoading(false);
-    }
+    // Procesar con Gemini
+    await processMessage(userMessage);
   };
   
   // Reiniciar la conversación
-  const resetConversation = async (): Promise<void> => {
-    try {
-      await axios.post(`${API_URL}/reset`, {
-        session_id: sessionId
-      });
+  const handleResetConversation = (): void => {
+    if (window.confirm('¿Estás seguro de que quieres reiniciar la conversación?')) {
+      resetConversation();
       setMessages([]);
-      setSessionId(`session_${Date.now()}`);
-    } catch (error) {
-      console.error('Error al reiniciar conversación:', error);
+      
+      // Detener audio si está reproduciéndose
+      if (currentAudioRef.current) {
+        currentAudioRef.current.pause();
+        currentAudioRef.current = null;
+      }
+      setIsSpeaking(false);
     }
   };
   
   // Reproducir audio
   const playAudio = (audioUrl: string): void => {
+    // Detener audio actual si existe
+    if (currentAudioRef.current) {
+      currentAudioRef.current.pause();
+    }
+    
     const audio = new Audio(audioUrl);
-    audio.play();
+    currentAudioRef.current = audio;
+    setIsSpeaking(true);
+    
+    audio.onended = () => {
+      setIsSpeaking(false);
+      currentAudioRef.current = null;
+    };
+    
+    audio.play().catch(err => {
+      console.error('Error al reproducir audio:', err);
+      setIsSpeaking(false);
+    });
   };
 
   return (
@@ -213,10 +219,13 @@ const ChatPage: React.FC = () => {
           {messages.length === 0 ? (
             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', color: 'rgba(255, 255, 255, 0.6)' }}>
               <FaRobot style={{ fontSize: '4rem', color: 'var(--maya-primary)', marginBottom: '1rem' }} />
-              <h2 className="gradient-text" style={{ fontSize: '1.5rem', fontWeight: 'bold', marginBottom: '0.5rem' }}>Maya está lista para ayudarte</h2>
-              <p style={{ textAlign: 'center', maxWidth: '400px' }}>
-                Envía un mensaje o usa el micrófono para hablar con Maya. 
-                Pregunta lo que quieras sobre Python y desarrollo de software.
+              <h2 className="gradient-text" style={{ fontSize: '1.5rem', fontWeight: 'bold', marginBottom: '0.5rem' }}>
+                ¡Hola! Soy Maya, tu desarrolladora Full Stack Senior
+              </h2>
+              <p style={{ textAlign: 'center', maxWidth: '500px', lineHeight: '1.6' }}>
+                Puedo ayudarte a crear aplicaciones completas en múltiples lenguajes: JavaScript, Python, PHP, Java, y más.
+                <br /><br />
+                Háblame de tu proyecto y generaré el código que necesitas. ¡Los archivos se pueden descargar al instante!
               </p>
             </div>
           ) : (
@@ -258,14 +267,28 @@ const ChatPage: React.FC = () => {
                           {msg.content}
                         </ReactMarkdown>
                         
-                        {msg.isAudio && (
+                        {msg.isAudio && msg.audioUrl && (
                           <button
                             onClick={() => playAudio(msg.audioUrl!)}
                             className="button-primary"
                             style={{ marginTop: '0.5rem', padding: '0.25rem 0.75rem', fontSize: '0.875rem', display: 'flex', alignItems: 'center', gap: '0.25rem' }}
+                            disabled={isSpeaking}
                           >
-                            <span>Reproducir audio</span>
+                            <span>{isSpeaking ? '🔊 Reproduciendo...' : '🔊 Escuchar respuesta'}</span>
                           </button>
+                        )}
+                        
+                        {/* Mostrar archivos generados */}
+                        {msg.files && msg.files.length > 0 && (
+                          <div className="files-container">
+                            <div className="files-header">
+                              <FaFileCode />
+                              <span>{msg.files.length} archivo{msg.files.length > 1 ? 's' : ''} generado{msg.files.length > 1 ? 's' : ''}</span>
+                            </div>
+                            {msg.files.map((file, fileIndex) => (
+                              <FileCard key={fileIndex} file={file} />
+                            ))}
+                          </div>
                         )}
                       </div>
                     )}
@@ -295,7 +318,7 @@ const ChatPage: React.FC = () => {
         {/* Controles y entrada de usuario */}
         <div className="chat-input-container">
           <button
-            onClick={resetConversation}
+            onClick={handleResetConversation}
             style={{ 
               width: '36px',
               height: '36px',
@@ -310,6 +333,7 @@ const ChatPage: React.FC = () => {
               cursor: 'pointer'
             }}
             title="Reiniciar conversación"
+            disabled={isLoading}
           >
             <FaTrash />
           </button>
@@ -318,8 +342,8 @@ const ChatPage: React.FC = () => {
             type="text"
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            onKeyPress={(e) => e.key === 'Enter' && sendMessage()}
-            placeholder="Escribe tu mensaje..."
+            onKeyPress={(e) => e.key === 'Enter' && !isLoading && sendMessage()}
+            placeholder="Cuéntame sobre tu proyecto..."
             disabled={isLoading || isRecording}
             className="chat-input"
           />
@@ -362,10 +386,18 @@ const ChatPage: React.FC = () => {
       </div>
       
       <div style={{ textAlign: 'center', color: 'rgba(255, 255, 255, 0.6)', fontSize: '0.875rem', marginTop: '1rem' }}>
-        <p>Maya está conectada a la API en <code style={{ background: 'rgba(0, 0, 0, 0.2)', padding: '0.25rem 0.5rem', borderRadius: '0.25rem' }}>https://mayaweb.onrender.com</code> (a través de proxy)</p>
+        <p>
+          Powered by <strong style={{ color: 'var(--maya-primary)' }}>Google Gemini AI</strong> y{' '}
+          <strong style={{ color: 'var(--maya-secondary)' }}>ElevenLabs</strong>
+        </p>
         {isRecording && (
-          <p style={{ color: '#ef4444', marginTop: '0.5rem' }}>
-            Grabando... Haz clic en el botón de detener cuando termines.
+          <p style={{ color: '#ef4444', marginTop: '0.5rem', fontWeight: '600' }}>
+            🎤 Escuchando... Habla ahora y presiona detener cuando termines.
+          </p>
+        )}
+        {isSpeaking && (
+          <p style={{ color: 'var(--maya-accent)', marginTop: '0.5rem', fontWeight: '600' }}>
+            🔊 Maya está hablando...
           </p>
         )}
       </div>

@@ -21,11 +21,11 @@ const LandingPage: React.FC = () => {
       <section className="hero-section">
         <div className="hero-content">
           <h1 className="hero-title">
-            Tu asistente <span className="gradient-text">Python</span> con inteligencia artificial
+            Tu desarrolladora <span className="gradient-text">Full Stack Senior</span> con inteligencia artificial
           </h1>
           <p className="hero-description">
-            Maya te ayuda a crear, optimizar y depurar código Python. 
-            Desde conceptos básicos hasta patrones avanzados de diseño.
+            Maya te ayuda a crear aplicaciones completas, desde frontend hasta backend.
+            Desarrollo conversacional con generación de código en múltiples lenguajes.
           </p>
           <div className="hero-buttons">
             <Link 
@@ -45,7 +45,7 @@ const LandingPage: React.FC = () => {
         <div className="hero-image">
           <img 
             src={mayaImage} 
-            alt="Maya Python Assistant" 
+            alt="Maya Full Stack Developer Assistant" 
           />
         </div>
       </section>
@@ -58,18 +58,18 @@ const LandingPage: React.FC = () => {
         <div className="features-grid">
           <FeatureCard 
             icon={<FaCode />}
-            title="Código optimizado" 
-            description="Aprende a escribir código Python más eficiente y limpio con las mejores prácticas del sector."
+            title="Código Full Stack" 
+            description="Genera código en JavaScript, TypeScript, Python, PHP, Java, y más. Frontend y Backend integrados."
           />
           <FeatureCard 
             icon={<FaLightbulb />}
-            title="Explica conceptos" 
-            description="Entenderás claramente cómo funcionan las bibliotecas, algoritmos y patrones de diseño."
+            title="Conversación natural" 
+            description="Habla con Maya de forma natural. Explícale tu proyecto y ella creará los archivos que necesitas."
           />
           <FeatureCard 
             icon={<FaRocket />}
-            title="Desarrollo rápido" 
-            description="Acelera tu proceso de desarrollo con sugerencias inteligentes y soluciones probadas."
+            title="Descarga inmediata" 
+            description="Todos los archivos generados se pueden descargar al instante. Código listo para usar en producción."
           />
         </div>
       </section>
@@ -78,10 +78,10 @@ const LandingPage: React.FC = () => {
       <section className="cta-section">
         <div className="cta-container">
           <h2 className="cta-title">
-            ¿Listo para mejorar tus habilidades en Python?
+            ¿Listo para desarrollar tu próximo proyecto?
           </h2>
           <p className="cta-description">
-            Comienza a conversar con Maya y lleva tu código al siguiente nivel.
+            Comienza a conversar con Maya y crea aplicaciones Full Stack con código de calidad profesional.
           </p>
           <Link 
             to="/chat" 
